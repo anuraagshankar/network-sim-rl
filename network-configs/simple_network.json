@@ -1,0 +1,25 @@
+{
+  "name": "Simple Network - 1 Node, 2 Channels",
+  "description": "Single node with two channels (one low traffic, one high traffic). Agent should learn to prefer the low-traffic channel.",
+  "network": {
+    "n_nodes": 1,
+    "n_channels": 2,
+    "max_backoff": 7,
+    "queue_limit": 10,
+    "max_steps": 1000,
+    "t_s": 1.0
+  },
+  "arrival_rates": {
+    "high_priority": [0.01],
+    "low_priority": [0.01]
+  },
+  "channel_interference": {
+    "type": "fixed",
+    "values": [0.05, 0.7]
+  },
+  "comments": {
+    "channel_0": "Low traffic channel (5% interference) - optimal choice",
+    "channel_1": "High traffic channel (70% interference) - should avoid"
+  }
+}
+

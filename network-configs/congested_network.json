@@ -1,0 +1,26 @@
+{
+  "name": "Congested Network",
+  "description": "High packet arrival rates with limited clean channels - tests agent's ability to handle congestion",
+  "network": {
+    "n_nodes": 1,
+    "n_channels": 4,
+    "max_backoff": 15,
+    "queue_limit": 15,
+    "max_steps": 1000,
+    "t_s": 1.0
+  },
+  "arrival_rates": {
+    "type": "fixed",
+    "high_priority": [0.05],
+    "low_priority": [0.08]
+  },
+  "channel_interference": {
+    "type": "fixed",
+    "values": [0.1, 0.4, 0.6, 0.8]
+  },
+  "comments": {
+    "scenario": "High arrival rates with progressively worse channels",
+    "challenge": "Agent must balance backoff timing and channel selection under heavy load"
+  }
+}
+

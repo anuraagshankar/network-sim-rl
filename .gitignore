@@ -1,0 +1,15 @@
+wnsim/
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+replays/
+*.log
+.DS_Store
+*.swp
+*.swo
+*~
+.vscode/
+.idea/
+

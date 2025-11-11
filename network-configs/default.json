@@ -1,0 +1,32 @@
+{
+  "name": "Default Network Configuration",
+  "description": "Standard 2-node, 4-channel network with random scenario generation",
+  "network": {
+    "n_nodes": 2,
+    "n_channels": 4,
+    "max_backoff": 7,
+    "queue_limit": 10,
+    "max_steps": 1000,
+    "t_s": 1.0
+  },
+  "arrival_rates": {
+    "type": "random",
+    "high_priority": {
+      "min": 0.005,
+      "max": 0.01
+    },
+    "low_priority": {
+      "min": 0.01,
+      "max": 0.05
+    }
+  },
+  "channel_interference": {
+    "type": "random",
+    "clean_channels_ratio": 0.25,
+    "noisy_range": {
+      "min": 0.0,
+      "max": 0.3
+    }
+  }
+}
+
