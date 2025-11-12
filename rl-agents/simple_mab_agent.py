@@ -65,7 +65,7 @@ for episode in range(n_episodes):
             break
 
 # Testing
-env = WirelessNetworkEnv(config_name='simple_network', max_steps=100, render_mode='human')
+env = WirelessNetworkEnv(config_name='congested_network', max_steps=100, render_mode='human')
 queue_agent.epsilon = 0.0
 channel_agent.epsilon = 0.0
 backoff_agent.epsilon = 0.0

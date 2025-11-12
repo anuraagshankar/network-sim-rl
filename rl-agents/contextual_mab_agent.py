@@ -39,10 +39,10 @@ def get_backoff_state(obs):
     return 0 if obs[2] == 0 else 1
 
 # Training
-env = WirelessNetworkEnv(config_name='simple_network', max_steps=500)
+env = WirelessNetworkEnv(config_name='congested_network', max_steps=500)
 obs, info = env.reset()
 
-n_episodes = 100
+n_episodes = 200
 epsilon_start = 1.0
 epsilon_end = 0.01
 
@@ -86,7 +86,7 @@ for episode in range(n_episodes):
             break
 
 # Testing
-env = WirelessNetworkEnv(config_name='simple_network', max_steps=100, render_mode='human')
+env = WirelessNetworkEnv(config_name='congested_network', max_steps=100, render_mode='human')
 queue_agent.epsilon = 0.0
 channel_agent.epsilon = 0.0
 backoff_agent.epsilon = 0.0
