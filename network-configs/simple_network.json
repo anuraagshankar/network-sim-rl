@@ -10,8 +10,8 @@
     "t_s": 1.0
   },
   "arrival_rates": {
-    "high_priority": [0.01],
-    "low_priority": [0.01]
+    "high_priority": [0.2],
+    "low_priority": [0.1]
   },
   "channel_interference": {
     "type": "fixed",

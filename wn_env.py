@@ -261,10 +261,10 @@ class WirelessNetworkEnv(gym.Env):
                 qos = self.HIGH_PRIO
             elif rl_queue_sel == self.LOW_PRIO and len(rl_node.packet_queue_low) > 0:
                 qos = self.LOW_PRIO
-            elif len(rl_node.packet_queue_high) > 0:
-                qos = self.HIGH_PRIO
-            elif len(rl_node.packet_queue_low) > 0:
-                qos = self.LOW_PRIO
+            # elif len(rl_node.packet_queue_high) > 0:
+            #     qos = self.HIGH_PRIO
+            # elif len(rl_node.packet_queue_low) > 0:
+            #     qos = self.LOW_PRIO
             else:
                 qos = -1
             
