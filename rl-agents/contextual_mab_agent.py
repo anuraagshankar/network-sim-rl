@@ -4,6 +4,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 import numpy as np
 from wn_env import WirelessNetworkEnv
+import json
 
 class ContextualAgent:
     def __init__(self, n_states, n_arms, epsilon=1.0):
@@ -38,8 +39,11 @@ def get_channel_state(obs, n_channels):
 def get_backoff_state(obs):
     return 0 if obs[2] == 0 else 1
 
+
+CONFIG_NAME = 'congested_network'
+
 # Training
-env = WirelessNetworkEnv(config_name='congested_network', max_steps=500)
+env = WirelessNetworkEnv(config_name=CONFIG_NAME, max_steps=500)
 obs, info = env.reset()
 
 n_episodes = 200
@@ -86,7 +90,7 @@ for episode in range(n_episodes):
             break
 
 # Testing
-env = WirelessNetworkEnv(config_name='congested_network', max_steps=100, render_mode='human')
+env = WirelessNetworkEnv(config_name=CONFIG_NAME, max_steps=100, render_mode='human')
 queue_agent.epsilon = 0.0
 channel_agent.epsilon = 0.0
 backoff_agent.epsilon = 0.0
@@ -109,3 +113,5 @@ while True:
     if terminated or truncated:
         break
 
+print("Throughput and latency metrics:")
+print(json.dumps(info['node_latency_throughput'], indent=2))

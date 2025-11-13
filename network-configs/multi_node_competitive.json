@@ -2,8 +2,8 @@
   "name": "Multi-Node Competitive Network",
   "description": "Multiple nodes competing for channels - tests agent's ability to avoid collisions",
   "network": {
-    "n_nodes": 3,
-    "n_channels": 3,
+    "n_nodes":2,
+    "n_channels": 2,
     "max_backoff": 7,
     "queue_limit": 10,
     "max_steps": 1000,
@@ -11,17 +11,17 @@
   },
   "arrival_rates": {
     "type": "fixed",
-    "high_priority": [0.02, 0.015, 0.018],
-    "low_priority": [0.03, 0.025, 0.028]
+    "high_priority": [0.1, 0.015],
+    "low_priority": [0.05, 0.025]
   },
   "channel_interference": {
     "type": "fixed",
-    "values": [0.0, 0.15, 0.3]
+    "values": [0.2, 0.15]
   },
   "comments": {
-    "scenario": "Three nodes with similar arrival rates competing for three channels",
+    "scenario": "Two nodes with similar arrival rates competing for two channels",
     "challenge": "Agent must learn collision avoidance while preferring cleaner channels",
-    "note": "Only node 0 is RL-controlled; nodes 1 and 2 follow random policy"
+    "note": "Both nodes are RL-controlled"
   }
 }
 
