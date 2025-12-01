@@ -11,7 +11,7 @@
   },
   "arrival_rates": {
     "type": "fixed",
-    "high_priority": [0.3, 0.3],
+    "high_priority": [0.5, 0.5],
     "low_priority": [0, 0]
   },
   "channel_interference": {
