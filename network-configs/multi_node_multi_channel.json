@@ -3,7 +3,7 @@
   "description": "Multiple nodes competing for channels - tests agent's ability to avoid collisions",
   "network": {
     "n_nodes":2,
-    "n_channels": 1,
+    "n_channels": 2,
     "max_backoff": 7,
     "queue_limit": 10,
     "max_steps": 1000,
@@ -11,12 +11,12 @@
   },
   "arrival_rates": {
     "type": "fixed",
-    "high_priority": [0.3, 0.3],
-    "low_priority": [0, 0]
+    "high_priority": [0.1, 0.1],
+    "low_priority": [0.1, 0.1]
   },
   "channel_interference": {
     "type": "fixed",
-    "values": [0]
+    "values": [0, 0]
   },
   "comments": {
     "scenario": "Two nodes with similar arrival rates competing for two channels",

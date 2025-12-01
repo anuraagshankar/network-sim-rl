@@ -7,6 +7,11 @@ import json
 from datetime import datetime
 import os
 from pettingzoo import ParallelEnv
+from reward_config import (
+    SUCCESS_REWARD, SUCCESS_REWARD_SINGLE,
+    HIGH_PRIORITY_BONUS, HIGH_PRIORITY_BONUS_SINGLE,
+    COLLISION_PENALTY, LATENCY_PENALTY_COEFF, QUEUE_PENALTY_COEFF
+)
 
 
 class Packet:
@@ -346,15 +351,15 @@ class WirelessNetworkEnv(gym.Env):
                     
                     # Reward for RL node
                     if node_id == 0:
-                        reward += 10.0  # Success reward
-                        reward -= latency * 0.01  # Latency penalty
+                        reward += SUCCESS_REWARD_SINGLE
+                        reward -= latency * LATENCY_PENALTY_COEFF
                         if qos == self.HIGH_PRIO:
-                            reward += 5.0  # Bonus for high priority
+                            reward += HIGH_PRIORITY_BONUS_SINGLE
                 else:
                     # Collision with external interference
                     node_id = transmissions[j][0]
                     if node_id == 0:
-                        reward -= 5.0
+                        reward -= COLLISION_PENALTY
                     self.nodes[node_id].stats[actions_taken[node_id][1]]['collisions'] += 1
                     self.collision_history[j] = 1.0
             
@@ -363,14 +368,14 @@ class WirelessNetworkEnv(gym.Env):
                 for node_id in transmissions[j]:
                     self.nodes[node_id].stats[actions_taken[node_id][1]]['collisions'] += 1
                     if node_id == 0:
-                        reward -= 5.0
+                        reward -= COLLISION_PENALTY
                 self.collision_history[j] = 1.0
         
         # Queue penalty for RL node
         rl_node = self.nodes[0]
         queue_occupancy = (len(rl_node.packet_queue_high) + 
                           len(rl_node.packet_queue_low)) / (2 * self.queue_limit)
-        reward -= queue_occupancy * 2.0
+        reward -= queue_occupancy * QUEUE_PENALTY_COEFF
         
         # Log step data for replay
         if self.render_mode is not None:
@@ -477,6 +482,7 @@ class WirelessNetworkParallelEnv(ParallelEnv):
         obs_dim = (
             2 +  # queue lengths (high, low)
             1 +  # backoff timer
+            1 +  # timestep
             self.n_channels +  # channel interference rates
             self.n_channels  # recent collision indicators per channel
         )
@@ -562,6 +568,7 @@ class WirelessNetworkParallelEnv(ParallelEnv):
             len(node.packet_queue_high),
             len(node.packet_queue_low),
             node.backoff_timer,
+            self.current_step,
             *self.gamma,
             *self.collision_history
         ], dtype=np.float32)
@@ -690,15 +697,15 @@ class WirelessNetworkParallelEnv(ParallelEnv):
                     
                     # Reward
                     agent_name = self.agents[node_id]
-                    rewards[agent_name] += 3.0
-                    rewards[agent_name] -= latency * 0.01
+                    rewards[agent_name] += SUCCESS_REWARD
+                    rewards[agent_name] -= latency * LATENCY_PENALTY_COEFF
                     if qos == self.HIGH_PRIO:
-                        rewards[agent_name] += 2.0
+                        rewards[agent_name] += HIGH_PRIORITY_BONUS
                 else:
                     # Collision with external interference
                     node_id = transmissions[j][0]
                     agent_name = self.agents[node_id]
-                    rewards[agent_name] -= 5.0
+                    rewards[agent_name] -= COLLISION_PENALTY
                     self.nodes[node_id].stats[actions_taken[node_id][1]]['collisions'] += 1
                     self.collision_history[j] = 1.0
             
@@ -707,7 +714,7 @@ class WirelessNetworkParallelEnv(ParallelEnv):
                 for node_id in transmissions[j]:
                     agent_name = self.agents[node_id]
                     self.nodes[node_id].stats[actions_taken[node_id][1]]['collisions'] += 1
-                    rewards[agent_name] -= 5.0
+                    rewards[agent_name] -= COLLISION_PENALTY
                 self.collision_history[j] = 1.0
         
         # Queue penalty for all agents
@@ -715,7 +722,7 @@ class WirelessNetworkParallelEnv(ParallelEnv):
             node = self.nodes[i]
             queue_occupancy = (len(node.packet_queue_high) + 
                               len(node.packet_queue_low)) / (2 * self.queue_limit)
-            rewards[agent] -= queue_occupancy * 2.0
+            rewards[agent] -= queue_occupancy * QUEUE_PENALTY_COEFF
         
         # Log step data for replay
         if self.render_mode is not None:
