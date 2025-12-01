@@ -36,49 +36,66 @@ class NetworkConfig:
         
         # Channel interference configuration
         self.interference_config = config_dict.get('channel_interference', {})
+        
+        # Non-stationary configuration
+        self.nonstationary_config = config_dict.get('non_stationary', {})
+        self.is_nonstationary = self.nonstationary_config.get('enabled', False)
     
     def generate_arrival_rates(self) -> Tuple[np.ndarray, np.ndarray]:
         """
         Generate arrival rates for high and low priority packets.
+        For non-stationary configs, returns rates only for fixed nodes.
         
         Returns:
             Tuple of (high_priority_rates, low_priority_rates) as numpy arrays
         """
+        target_nodes = self.get_n_fixed_nodes()
+        
         if self.arrival_config.get('type') == 'random':
-            # Random generation
             high_cfg = self.arrival_config.get('high_priority', {})
             low_cfg = self.arrival_config.get('low_priority', {})
             
             p_high = np.random.uniform(
                 high_cfg.get('min', 0.005),
                 high_cfg.get('max', 0.01),
-                self.n_nodes
+                target_nodes
             )
             p_low = np.random.uniform(
                 low_cfg.get('min', 0.01),
                 low_cfg.get('max', 0.05),
-                self.n_nodes
+                target_nodes
             )
         else:
-            # Fixed values from config
-            p_high = np.array(self.arrival_config.get('high_priority', [0.01] * self.n_nodes))
-            p_low = np.array(self.arrival_config.get('low_priority', [0.01] * self.n_nodes))
+            p_high = np.array(self.arrival_config.get('high_priority', [0.01] * target_nodes))
+            p_low = np.array(self.arrival_config.get('low_priority', [0.01] * target_nodes))
             
-            # Ensure arrays match n_nodes
-            if len(p_high) < self.n_nodes:
-                # Extend with last value if too short
-                p_high = np.pad(p_high, (0, self.n_nodes - len(p_high)), 
+            if len(p_high) < target_nodes:
+                p_high = np.pad(p_high, (0, target_nodes - len(p_high)), 
                                mode='edge')
-            elif len(p_high) > self.n_nodes:
-                p_high = p_high[:self.n_nodes]
+            elif len(p_high) > target_nodes:
+                p_high = p_high[:target_nodes]
             
-            if len(p_low) < self.n_nodes:
-                p_low = np.pad(p_low, (0, self.n_nodes - len(p_low)), 
+            if len(p_low) < target_nodes:
+                p_low = np.pad(p_low, (0, target_nodes - len(p_low)), 
                               mode='edge')
-            elif len(p_low) > self.n_nodes:
-                p_low = p_low[:self.n_nodes]
+            elif len(p_low) > target_nodes:
+                p_low = p_low[:target_nodes]
         
         return p_high, p_low
+    
+    def get_n_fixed_nodes(self) -> int:
+        """
+        Get the number of fixed (always present) nodes.
+        For non-stationary configs, returns n_nodes - n_nonstationary_nodes.
+        For stationary configs, returns n_nodes.
+        
+        Returns:
+            Number of fixed nodes
+        """
+        if self.is_nonstationary:
+            n_nonstationary = self.nonstationary_config.get('nodes', 0)
+            return self.n_nodes - n_nonstationary
+        return self.n_nodes
     
     def generate_channel_interference(self) -> np.ndarray:
         """
@@ -170,10 +187,10 @@ class ConfigLoader:
             )
         
         try:
-            with open(config_path, 'r') as f:
+            with open(config_path, 'r', encoding='utf-8') as f:
                 config_dict = json.load(f)
         except json.JSONDecodeError as e:
-            raise ValueError(f"Invalid JSON in config file {config_path}: {e}")
+            raise ValueError(f"Invalid JSON in config file {config_path}: {e}") from e
         
         return NetworkConfig(config_dict)
     
