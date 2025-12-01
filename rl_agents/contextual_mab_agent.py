@@ -3,7 +3,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 import numpy as np
-from wn_env import WirelessNetworkEnv
+from envs import WirelessNetworkEnv
 import json
 
 class ContextualAgent:

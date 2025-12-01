@@ -3,7 +3,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 import numpy as np
-from wn_env import WirelessNetworkEnv
+from envs import WirelessNetworkEnv
 
 class EpsilonGreedyAgent:
     def __init__(self, n_arms, epsilon=1.0):

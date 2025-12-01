@@ -128,7 +128,7 @@ class ConfigLoader:
     # Default config directory
     DEFAULT_CONFIG_DIR = os.path.join(
         os.path.dirname(os.path.abspath(__file__)), 
-        'network-configs'
+        'configs'
     )
     
     # Default config file
