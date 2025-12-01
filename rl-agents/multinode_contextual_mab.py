@@ -71,7 +71,7 @@ class NodeAgent:
 CONFIG_NAME = 'multi_node_competitive'
 
 # Training
-env = WirelessNetworkParallelEnv(config_name=CONFIG_NAME, max_steps=500)
+env = WirelessNetworkParallelEnv(config_name=CONFIG_NAME)
 observations, infos = env.reset()
 
 n_episodes = 200
@@ -107,10 +107,15 @@ for episode in range(n_episodes):
             print(f"Episode {episode} rewards: {episode_rewards}")
             break
 
+    if episode_rewards[env.agents[0]] > 0 and episode_rewards[env.agents[1]] > 0:
+        break
+
 # Testing
-env = WirelessNetworkParallelEnv(config_name=CONFIG_NAME, max_steps=100, render_mode='human')
-for agent in agents.values():
-    agent.set_epsilon(0.0)
+env = WirelessNetworkParallelEnv(config_name=CONFIG_NAME, render_mode='human')
+env.max_steps = 100
+
+# for agent in agents.values():
+#     agent.set_epsilon(0.0)
 
 observations, infos = env.reset()
 

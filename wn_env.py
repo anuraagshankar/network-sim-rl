@@ -690,10 +690,10 @@ class WirelessNetworkParallelEnv(ParallelEnv):
                     
                     # Reward
                     agent_name = self.agents[node_id]
-                    rewards[agent_name] += 10.0
+                    rewards[agent_name] += 3.0
                     rewards[agent_name] -= latency * 0.01
                     if qos == self.HIGH_PRIO:
-                        rewards[agent_name] += 5.0
+                        rewards[agent_name] += 2.0
                 else:
                     # Collision with external interference
                     node_id = transmissions[j][0]
