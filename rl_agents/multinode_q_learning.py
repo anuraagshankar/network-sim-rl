@@ -1,5 +1,5 @@
 import numpy as np
-from envs import WirelessNetworkParallelEnv
+from rl_agents.agent_runner import ENV_CLASS, CONFIG_NAME, RENDER_MODE, TRAIN_EPS, TRAIN_MAX_STEPS, TEST_MAX_STEPS
 import json
 
 class QLearningAgent:
@@ -76,12 +76,13 @@ class NodeAgent:
         return backoff_binary * 2 + timestep_binary
 
 
-CONFIG_NAME = 'multi_node_competitive'
-
-env = WirelessNetworkParallelEnv(config_name=CONFIG_NAME)
+# Training
+env = ENV_CLASS(config_name=CONFIG_NAME)
+if TRAIN_MAX_STEPS is not None:
+    env.max_steps = TRAIN_MAX_STEPS
 observations, infos = env.reset()
 
-n_episodes = 300
+n_episodes = TRAIN_EPS
 epsilon_start = 1.0
 epsilon_end = 0.01
 
@@ -122,8 +123,10 @@ for episode in range(n_episodes):
             print(f"Episode {episode} rewards: {episode_rewards}")
             break
 
-env = WirelessNetworkParallelEnv(config_name=CONFIG_NAME, render_mode='human')
-env.max_steps = 100
+# Testing
+env = ENV_CLASS(config_name=CONFIG_NAME, render_mode=RENDER_MODE)
+if TEST_MAX_STEPS is not None:
+    env.max_steps = TEST_MAX_STEPS
 
 for agent in agents.values():
     agent.set_epsilon(0.0)

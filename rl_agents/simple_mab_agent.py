@@ -1,5 +1,5 @@
 import numpy as np
-from envs import WirelessNetworkEnv
+from rl_agents.agent_runner import ENV_CLASS, CONFIG_NAME, RENDER_MODE, TRAIN_EPS, TRAIN_MAX_STEPS, TEST_MAX_STEPS
 
 class EpsilonGreedyAgent:
     def __init__(self, n_arms, epsilon=1.0):
@@ -18,10 +18,13 @@ class EpsilonGreedyAgent:
         self.q_values[arm] += (reward - self.q_values[arm]) / self.counts[arm]
 
 # Training
-env = WirelessNetworkEnv(config_name='simple_network', max_steps=500)
+env = ENV_CLASS(config_name=CONFIG_NAME)
+if TRAIN_MAX_STEPS is not None:
+    env.max_steps = TRAIN_MAX_STEPS
+
 obs, info = env.reset()
 
-n_episodes = 100
+n_episodes = TRAIN_EPS
 epsilon_start = 1.0
 epsilon_end = 0.01
 
@@ -61,7 +64,10 @@ for episode in range(n_episodes):
             break
 
 # Testing
-env = WirelessNetworkEnv(config_name='congested_network', max_steps=100, render_mode='human')
+env = ENV_CLASS(config_name=CONFIG_NAME, render_mode=RENDER_MODE)
+if TEST_MAX_STEPS is not None:
+    env.max_steps = TEST_MAX_STEPS
+
 queue_agent.epsilon = 0.0
 channel_agent.epsilon = 0.0
 backoff_agent.epsilon = 0.0

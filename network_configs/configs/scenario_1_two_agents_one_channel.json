@@ -6,13 +6,13 @@
     "n_channels": 1,
     "max_backoff": 7,
     "queue_limit": 50,
-    "max_steps": 10000,
+    "max_steps": 1000,
     "t_s": 1.0
   },
   "arrival_rates": {
     "type": "fixed",
-    "high_priority": [0.01, 0.01],
-    "low_priority": [0.04, 0.04]
+    "high_priority": [0.3, 0.3],
+    "low_priority": [0.3, 0.3]
   },
   "channel_interference": {
     "type": "fixed",
