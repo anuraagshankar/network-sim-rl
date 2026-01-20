@@ -6,11 +6,12 @@ wireless network simulations.
 """
 
 from envs.single_agent_env import WirelessNetworkEnv, Packet, Node
-from envs.multi_agent_env import WirelessNetworkParallelEnv
+from envs.multi_agent_env import WirelessNetworkParallelEnv, CentralizedRewardParallelEnv
 
 __all__ = [
     'WirelessNetworkEnv',
     'WirelessNetworkParallelEnv',
+    'CentralizedRewardParallelEnv',
     'Packet',
     'Node'
 ]

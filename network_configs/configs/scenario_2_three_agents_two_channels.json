@@ -1,0 +1,24 @@
+{
+  "name": "Scenario 2: Three Agents, Two Channels",
+  "description": "Three agents, 2 channels (1 clean, 1 noisy).",
+  "network": {
+    "n_nodes": 3,
+    "n_channels": 2,
+    "max_backoff": 7,
+    "queue_limit": 50,
+    "max_steps": 1000,
+    "t_s": 1.0
+  },
+  "arrival_rates": {
+    "type": "fixed",
+    "high_priority": [0.1, 0.1, 0.1],
+    "low_priority": [0.3, 0.3, 0.3]
+  },
+  "channel_interference": {
+    "type": "fixed",
+    "values": [0.0, 0.7]
+  },
+  "comments": {
+    "note": "Based on professor's email: Three agents, 2 channels (1 clean, 1 noisy). Q_LIMIT=50. High prio 0.001, Low prio 0.04. Noisy channel gamma=0.3."
+  }
+}

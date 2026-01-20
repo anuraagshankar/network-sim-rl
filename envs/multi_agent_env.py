@@ -1,11 +1,19 @@
+import json
+import os
+from datetime import datetime
+
 import numpy as np
 from gymnasium import spaces
 from pettingzoo import ParallelEnv
+
+from envs.reward_config import (CENTRAL_COLLISION_PENALTY,
+                                CENTRAL_IDLE_PENALTY_BASE,
+                                CENTRAL_IDLE_PENALTY_FACTOR, CENTRAL_TX_REWARD,
+                                COLLISION_PENALTY, HIGH_PRIORITY_BONUS,
+                                LATENCY_PENALTY_COEFF, QUEUE_PENALTY_COEFF,
+                                SUCCESS_REWARD)
+from envs.single_agent_env import Node, Packet
 from network_configs.config_loader import ConfigLoader
-import json
-from datetime import datetime
-import os
-from envs.single_agent_env import Packet, Node
 
 
 class WirelessNetworkParallelEnv(ParallelEnv):
@@ -185,10 +193,6 @@ class WirelessNetworkParallelEnv(ParallelEnv):
     
     def step(self, actions):
         """Execute one time step with all agents acting in parallel."""
-        from envs.reward_config import (
-            SUCCESS_REWARD, HIGH_PRIORITY_BONUS,
-            COLLISION_PENALTY, LATENCY_PENALTY_COEFF, QUEUE_PENALTY_COEFF
-        )
         
         # Step 1: Packet arrivals
         arrivals = {}
@@ -366,3 +370,79 @@ class WirelessNetworkParallelEnv(ParallelEnv):
         """Return global state (not used in parallel environments)."""
         return None
 
+
+class CentralizedRewardParallelEnv(WirelessNetworkParallelEnv):
+    """
+    Extends WirelessNetworkParallelEnv with a centralized reward structure.
+    
+    Additional Rewards:
+    - When a node transmits, all other nodes receive a small reward (cooperative incentive).
+    - When a node stays idle, all other nodes receive a penalty that grows with idle duration.
+    """
+    
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        # Track last transmission time for each node
+        self.node_last_tx_step = None 
+
+    def reset(self, seed=None, options=None):
+        observations, infos = super().reset(seed=seed, options=options)
+        
+        # Initialize last transmission steps to 0
+        self.node_last_tx_step = np.zeros(self.n_nodes, dtype=int)
+        
+        return observations, infos
+
+    def step(self, actions):
+        # Capture stats before step to detect transmissions
+        pre_stats = []
+        for node in self.nodes:
+            sent = node.stats[self.HIGH_PRIO]['sent'] + node.stats[self.LOW_PRIO]['sent']
+            collisions = node.stats[self.HIGH_PRIO]['collisions'] + node.stats[self.LOW_PRIO]['collisions']
+            pre_stats.append({'sent': sent, 'collisions': collisions})
+            
+        # Execute base environment step
+        observations, rewards, terminations, truncations, infos = super().step(actions)
+        
+        # Determine which nodes transmitted (successful or collision)
+        did_transmit = [False] * self.n_nodes
+        cur_stats = []
+        for i, node in enumerate(self.nodes):
+            sent = node.stats[self.HIGH_PRIO]['sent'] + node.stats[self.LOW_PRIO]['sent']
+            collisions = node.stats[self.HIGH_PRIO]['collisions'] + node.stats[self.LOW_PRIO]['collisions']
+            cur_stats.append({'sent': sent, 'collisions': collisions})
+            
+            # Check if sent count or collision count increased
+            if sent > pre_stats[i]['sent'] or collisions > pre_stats[i]['collisions']:
+                did_transmit[i] = True
+                self.node_last_tx_step[i] = self.current_step
+        
+        # Calculate centralized adjustments
+        central_adjustments = {agent: 0.0 for agent in self.agents}
+        
+        for i in range(self.n_nodes):
+            if did_transmit[i]:
+                # Node i transmitted: Reward others
+                for j, agent in enumerate(self.agents):
+                    if i == j: 
+                        continue
+                    if cur_stats[j]['sent'] > pre_stats[j]['sent']:
+                        central_adjustments[agent] += CENTRAL_TX_REWARD
+                    if cur_stats[j]['collisions'] > pre_stats[j]['collisions']:
+                        central_adjustments[agent] -= CENTRAL_COLLISION_PENALTY
+            else:
+                # Node i was idle: Penalize others based on idle duration
+                # idle_duration is calculated from current step
+                idle_duration = self.current_step - self.node_last_tx_step[i]
+                penalty = CENTRAL_IDLE_PENALTY_BASE + (idle_duration * CENTRAL_IDLE_PENALTY_FACTOR)
+                
+                for j, agent in enumerate(self.agents):
+                    if i != j:
+                        central_adjustments[agent] -= penalty
+                        
+        # Apply adjustments to rewards
+        for agent in self.agents:
+            if agent in rewards:
+                rewards[agent] += central_adjustments[agent]
+                
+        return observations, rewards, terminations, truncations, infos

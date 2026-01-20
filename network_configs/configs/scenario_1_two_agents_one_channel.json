@@ -1,0 +1,24 @@
+{
+  "name": "Scenario 1: Two Agents, One Channel",
+  "description": "Two agents competing for a single channel with specified traffic loads.",
+  "network": {
+    "n_nodes": 2,
+    "n_channels": 1,
+    "max_backoff": 7,
+    "queue_limit": 50,
+    "max_steps": 10000,
+    "t_s": 1.0
+  },
+  "arrival_rates": {
+    "type": "fixed",
+    "high_priority": [0.01, 0.01],
+    "low_priority": [0.04, 0.04]
+  },
+  "channel_interference": {
+    "type": "fixed",
+    "values": [0.0]
+  },
+  "comments": {
+    "note": "Based on professor's email: Two agents 1 channel. Q_LIMIT=50. High prio 0.001, Low prio 0.04."
+  }
+}

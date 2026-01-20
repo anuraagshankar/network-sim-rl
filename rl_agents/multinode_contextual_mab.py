@@ -1,5 +1,5 @@
 import numpy as np
-from envs import WirelessNetworkParallelEnv
+from envs import WirelessNetworkParallelEnv, CentralizedRewardParallelEnv
 import json
 
 class ContextualAgent:
@@ -20,10 +20,11 @@ class ContextualAgent:
         self.q_values[state, arm] += (reward - self.q_values[state, arm]) / self.counts[state, arm]
 
 class NodeAgent:
-    def __init__(self, n_channels, max_backoff, epsilon=1.0):
+    def __init__(self, n_channels, max_backoff, n_agents, epsilon=1.0):
+        self.n_agents = n_agents
         self.queue_agent = ContextualAgent(4, 2, epsilon)
         self.channel_agent = ContextualAgent(2**n_channels, n_channels, epsilon)
-        self.backoff_agent = ContextualAgent(4, 2, epsilon)
+        self.backoff_agent = ContextualAgent(2 * n_agents, min(n_agents, max_backoff + 1), epsilon)
     
     def set_epsilon(self, epsilon):
         self.queue_agent.epsilon = epsilon
@@ -62,21 +63,21 @@ class NodeAgent:
     
     def _get_backoff_state(self, obs):
         backoff_binary = 0 if obs[2] == 0 else 1
-        timestep_binary = int(obs[3]) % 2
-        return backoff_binary * 2 + timestep_binary
+        timestep_state = int(obs[3]) % self.n_agents
+        return backoff_binary * self.n_agents + timestep_state
 
 
-CONFIG_NAME = 'multi_node_competitive'
+CONFIG_NAME = 'scenario_2_three_agents_two_channels'
 
 # Training
-env = WirelessNetworkParallelEnv(config_name=CONFIG_NAME)
+env = CentralizedRewardParallelEnv(config_name=CONFIG_NAME)
 observations, infos = env.reset()
 
-n_episodes = 300
+n_episodes = 500
 epsilon_start = 1.0
 epsilon_end = 0.01
 
-agents = {agent: NodeAgent(env.n_channels, env.max_backoff, epsilon_start) 
+agents = {agent: NodeAgent(env.n_channels, env.max_backoff, len(env.possible_agents), epsilon_start) 
           for agent in env.possible_agents}
 
 for episode in range(n_episodes):
@@ -109,7 +110,7 @@ for episode in range(n_episodes):
     #     break
 
 # Testing
-env = WirelessNetworkParallelEnv(config_name=CONFIG_NAME, render_mode='human')
+env = CentralizedRewardParallelEnv(config_name=CONFIG_NAME, render_mode='human')
 env.max_steps = 100
 
 for agent in agents.values():
