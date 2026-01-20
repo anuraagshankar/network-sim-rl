@@ -20,11 +20,14 @@ class ContextualAgent:
         self.q_values[state, arm] += (reward - self.q_values[state, arm]) / self.counts[state, arm]
 
 class NodeAgent:
-    def __init__(self, n_channels, max_backoff, n_agents, epsilon=1.0):
+    def __init__(self, node_id, n_channels, max_backoff, n_agents, epsilon=1.0):
+        self.node_id = node_id
         self.n_agents = n_agents
         self.queue_agent = ContextualAgent(4, 2, epsilon)
         self.channel_agent = ContextualAgent(2**n_channels, n_channels, epsilon)
-        self.backoff_agent = ContextualAgent(2 * n_agents, min(n_agents, max_backoff + 1), epsilon)
+        # self.backoff_agent = ContextualAgent(2 * n_agents, min(n_agents, max_backoff + 1), epsilon)
+    
+        self.backoff_agent = ContextualAgent(2, 2, epsilon)
     
     def set_epsilon(self, epsilon):
         self.queue_agent.epsilon = epsilon
@@ -64,7 +67,8 @@ class NodeAgent:
     def _get_backoff_state(self, obs):
         backoff_binary = 0 if obs[2] == 0 else 1
         timestep_state = int(obs[3]) % self.n_agents
-        return backoff_binary * self.n_agents + timestep_state
+        # return backoff_binary * self.n_agents + timestep_state
+        return 1 if self.node_id == timestep_state else 0
 
 
 # Training
@@ -77,8 +81,8 @@ n_episodes = TRAIN_EPS
 epsilon_start = 1.0
 epsilon_end = 0.01
 
-agents = {agent: NodeAgent(env.n_channels, env.max_backoff, len(env.possible_agents), epsilon_start) 
-          for agent in env.possible_agents}
+agents = {agent: NodeAgent(i, env.n_channels, env.max_backoff, len(env.possible_agents), epsilon_start) 
+          for i, agent in enumerate(env.possible_agents)}
 
 for episode in range(n_episodes):
     epsilon = epsilon_start - (epsilon_start - epsilon_end) * episode / n_episodes
