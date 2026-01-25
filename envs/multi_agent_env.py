@@ -235,9 +235,6 @@ class WirelessNetworkParallelEnv(ParallelEnv):
             channel_sel = action['channel_selection']
             backoff = action['backoff_value']
             
-            if node.backoff_timer > 0:
-                node.backoff_timer -= 1
-            
             if node.backoff_timer == 0:
                 # Check if selected queue has packets
                 if queue_sel == self.HIGH_PRIO and len(node.packet_queue_high) > 0:
@@ -252,6 +249,9 @@ class WirelessNetworkParallelEnv(ParallelEnv):
                     if backoff == 0:
                         transmissions[channel_sel].append(i)
                         actions_taken[i] = (channel_sel, qos)
+            
+            if node.backoff_timer > 0:
+                node.backoff_timer -= 1
         
         # Step 4: Resolve outcomes
         successful_tx = {}
