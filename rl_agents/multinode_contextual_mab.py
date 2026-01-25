@@ -25,9 +25,14 @@ class NodeAgent:
         self.n_agents = n_agents
         self.queue_agent = ContextualAgent(4, 2, epsilon)
         self.channel_agent = ContextualAgent(2**n_channels, n_channels, epsilon)
-        # self.backoff_agent = ContextualAgent(2 * n_agents, min(n_agents, max_backoff + 1), epsilon)
-    
-        self.backoff_agent = ContextualAgent(2, 2, epsilon)
+        
+        # Backoff agent state: 
+        # 1. Packets in any queue (2 states)
+        # 2. Transmitted last step (2 states)
+        # 3. Channel collision history (2^n_channels states)
+        # Total states: 2 * 2 * 2^n_channels
+        n_backoff_states = 4 * (2**n_channels)
+        self.backoff_agent = ContextualAgent(n_backoff_states, max_backoff + 1, epsilon)
     
     def set_epsilon(self, epsilon):
         self.queue_agent.epsilon = epsilon
@@ -37,7 +42,7 @@ class NodeAgent:
     def select_action(self, obs, n_channels):
         queue_state = self._get_queue_state(obs)
         channel_state = self._get_channel_state(obs, n_channels)
-        backoff_state = self._get_backoff_state(obs)
+        backoff_state = self._get_backoff_state(obs, n_channels)
         
         return {
             'queue_selection': self.queue_agent.select(queue_state),
@@ -64,11 +69,23 @@ class NodeAgent:
                 state += 2**i
         return state
     
-    def _get_backoff_state(self, obs):
-        backoff_binary = 0 if obs[2] == 0 else 1
-        timestep_state = int(obs[3]) % self.n_agents
-        # return backoff_binary * self.n_agents + timestep_state
-        return 1 if self.node_id == timestep_state else 0
+    def _get_backoff_state(self, obs, n_channels):
+        # 1. Whether there are packets in any of the two queues combined
+        has_packets = 1 if (obs[0] > 0 or obs[1] > 0) else 0
+        
+        # 2. Whether the agent transmitted last step
+        tx_last = int(obs[4])
+        
+        # 3. The recent collision history of the channels
+        collision_state = self._get_channel_state(obs, n_channels)
+        
+        # Combine states
+        # collision_state: 0 to 2^N - 1
+        # tx_last: 0 or 1
+        # has_packets: 0 or 1
+        
+        state = (has_packets * 2 * (2**n_channels)) + (tx_last * (2**n_channels)) + collision_state
+        return state
 
 
 # Training
@@ -92,19 +109,32 @@ for episode in range(n_episodes):
     episode_rewards = {agent: 0 for agent in env.possible_agents}
     observations, infos = env.reset()
     
+    last_states = {agent: None for agent in env.agents}
+    last_actions = {agent: None for agent in env.agents}
+    
     while True:
         actions = {}
-        states = {}
+        
         for agent_name in env.agents:
-            action, state = agents[agent_name].select_action(observations[agent_name], env.n_channels)
-            actions[agent_name] = action
-            states[agent_name] = state
+            if infos[agent_name]['active_decision']:
+                action, state = agents[agent_name].select_action(observations[agent_name], env.n_channels)
+                actions[agent_name] = action
+                last_states[agent_name] = state
+                last_actions[agent_name] = action
+            else:
+                actions[agent_name] = {
+                    'queue_selection': 0,
+                    'channel_selection': 0,
+                    'backoff_value': 0
+                }
         
         observations, rewards, terminations, truncations, infos = env.step(actions)
         
         for agent_name in env.agents:
             episode_rewards[agent_name] += rewards[agent_name]
-            agents[agent_name].update(states[agent_name], actions[agent_name], rewards[agent_name])
+            
+            if infos[agent_name]['active_decision'] and last_states[agent_name] is not None:
+                agents[agent_name].update(last_states[agent_name], last_actions[agent_name], rewards[agent_name])
         
         if all(truncations.values()) or all(terminations.values()):
             print(f"Episode {episode} rewards: {episode_rewards}")
@@ -126,8 +156,15 @@ observations, infos = env.reset()
 while True:
     actions = {}
     for agent_name in env.agents:
-        action, _ = agents[agent_name].select_action(observations[agent_name], env.n_channels)
-        actions[agent_name] = action
+        if infos[agent_name]['active_decision']:
+            action, _ = agents[agent_name].select_action(observations[agent_name], env.n_channels)
+            actions[agent_name] = action
+        else:
+            actions[agent_name] = {
+                'queue_selection': 0,
+                'channel_selection': 0,
+                'backoff_value': 0
+            }
     
     observations, rewards, terminations, truncations, infos = env.step(actions)
     

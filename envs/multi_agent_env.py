@@ -64,6 +64,7 @@ class WirelessNetworkParallelEnv(ParallelEnv):
             2 +  # queue lengths (high, low)
             1 +  # backoff timer
             1 +  # timestep
+            1 +  # transmitted last step
             self.n_channels +  # channel interference rates
             self.n_channels  # recent collision indicators per channel
         )
@@ -85,6 +86,8 @@ class WirelessNetworkParallelEnv(ParallelEnv):
         self.p_arrivals_low = None
         self.gamma = None
         self.collision_history = None
+        self.last_step_transmitted = None
+        self.accumulated_rewards = {}
     
     @property
     def num_agents(self):
@@ -120,7 +123,9 @@ class WirelessNetworkParallelEnv(ParallelEnv):
             np.random.shuffle(self.gamma)
         
         self.collision_history = np.zeros(self.n_channels)
+        self.last_step_transmitted = np.zeros(self.n_nodes, dtype=int)
         self.current_step = 0
+        self.accumulated_rewards = {agent: 0.0 for agent in self.agents}
         
         if self.render_mode is not None:
             self.replay_log = []
@@ -139,6 +144,10 @@ class WirelessNetworkParallelEnv(ParallelEnv):
         observations = {agent: self._get_obs(i) for i, agent in enumerate(self.agents)}
         infos = {agent: self._get_info(i) for i, agent in enumerate(self.agents)}
         
+        # Initially all agents are active (backoff 0)
+        for agent in self.agents:
+            infos[agent]['active_decision'] = True
+        
         return observations, infos
     
     def _get_obs(self, node_id):
@@ -150,6 +159,7 @@ class WirelessNetworkParallelEnv(ParallelEnv):
             len(node.packet_queue_low),
             node.backoff_timer,
             self.current_step,
+            self.last_step_transmitted[node_id],
             *self.gamma,
             *self.collision_history
         ], dtype=np.float32)
@@ -191,8 +201,8 @@ class WirelessNetworkParallelEnv(ParallelEnv):
         
         return metrics
     
-    def step(self, actions):
-        """Execute one time step with all agents acting in parallel."""
+    def _base_step(self, actions):
+        """Execute one time step with all agents acting in parallel (internal logic)."""
         
         # Step 1: Packet arrivals
         arrivals = {}
@@ -226,6 +236,7 @@ class WirelessNetworkParallelEnv(ParallelEnv):
         # Step 3: Transmission decisions (all agents act in parallel)
         transmissions = [[] for _ in range(self.n_channels)]
         actions_taken = {}
+        self.last_step_transmitted.fill(0)
         
         for i, agent in enumerate(self.agents):
             node = self.nodes[i]
@@ -249,6 +260,7 @@ class WirelessNetworkParallelEnv(ParallelEnv):
                     if backoff == 0:
                         transmissions[channel_sel].append(i)
                         actions_taken[i] = (channel_sel, qos)
+                        self.last_step_transmitted[i] = 1
             
             if node.backoff_timer > 0:
                 node.backoff_timer -= 1
@@ -257,6 +269,7 @@ class WirelessNetworkParallelEnv(ParallelEnv):
         successful_tx = {}
         rewards = {agent: 0.0 for agent in self.agents}
         self.collision_history *= 0.9
+        current_step_collisions = []
         
         for j in range(self.n_channels):
             num_tx = len(transmissions[j])
@@ -291,6 +304,7 @@ class WirelessNetworkParallelEnv(ParallelEnv):
                     rewards[agent_name] -= COLLISION_PENALTY
                     self.nodes[node_id].stats[actions_taken[node_id][1]]['collisions'] += 1
                     self.collision_history[j] = 1.0
+                    current_step_collisions.append(int(j))
             
             elif num_tx > 1:
                 # Collision between nodes
@@ -299,6 +313,7 @@ class WirelessNetworkParallelEnv(ParallelEnv):
                     self.nodes[node_id].stats[actions_taken[node_id][1]]['collisions'] += 1
                     rewards[agent_name] -= COLLISION_PENALTY
                 self.collision_history[j] = 1.0
+                current_step_collisions.append(int(j))
         
         # Queue penalty for all agents
         for i, agent in enumerate(self.agents):
@@ -322,7 +337,7 @@ class WirelessNetworkParallelEnv(ParallelEnv):
                 'actions': {k: {'channel': int(v[0]), 'queue': int(v[1])} for k, v in actions_taken.items()},
                 'transmissions': {j: [int(n) for n in tx] for j, tx in enumerate(transmissions) if tx},
                 'successes': {k: int(v) for k, v in successful_tx.items()},
-                'collisions': [int(j) for j in range(self.n_channels) if self.collision_history[j] > 0.5]
+                'collisions': current_step_collisions
             }
             self.replay_log.append(step_data)
         
@@ -346,6 +361,41 @@ class WirelessNetworkParallelEnv(ParallelEnv):
             for i, agent in enumerate(self.agents):
                 infos[agent]['node_latency_throughput'] = metrics
         
+        return observations, rewards, terminations, truncations, infos
+
+    def _accumulate_rewards(self, rewards, infos):
+        """
+        Accumulate rewards for agents with backoff > 0.
+        Return 0 reward for them, and accumulated reward when backoff becomes 0.
+        Also adds 'active_decision' to info.
+        """
+        for i, agent in enumerate(self.agents):
+            node = self.nodes[i]
+            
+            # Add current step reward to accumulation
+            if agent not in self.accumulated_rewards:
+                self.accumulated_rewards[agent] = 0.0
+            self.accumulated_rewards[agent] += rewards.get(agent, 0.0)
+            
+            # Check if agent is ready to make a decision (backoff == 0)
+            # The backoff was already decremented in _base_step if it was > 0
+            is_active = (node.backoff_timer == 0)
+            infos[agent]['active_decision'] = is_active
+            
+            if is_active:
+                # Agent is ready, return accumulated reward and reset
+                rewards[agent] = self.accumulated_rewards[agent]
+                self.accumulated_rewards[agent] = 0.0
+            else:
+                # Agent is backing off, return 0 reward
+                rewards[agent] = 0.0
+                
+        return rewards, infos
+
+    def step(self, actions):
+        """Execute one time step with reward accumulation."""
+        observations, rewards, terminations, truncations, infos = self._base_step(actions)
+        rewards, infos = self._accumulate_rewards(rewards, infos)
         return observations, rewards, terminations, truncations, infos
     
     def _save_replay(self):
@@ -401,8 +451,8 @@ class CentralizedRewardParallelEnv(WirelessNetworkParallelEnv):
             collisions = node.stats[self.HIGH_PRIO]['collisions'] + node.stats[self.LOW_PRIO]['collisions']
             pre_stats.append({'sent': sent, 'collisions': collisions})
             
-        # Execute base environment step
-        observations, rewards, terminations, truncations, infos = super().step(actions)
+        # Execute base environment step (without accumulation yet)
+        observations, rewards, terminations, truncations, infos = self._base_step(actions)
         
         # Determine which nodes transmitted (successful or collision)
         did_transmit = [False] * self.n_nodes
@@ -444,5 +494,8 @@ class CentralizedRewardParallelEnv(WirelessNetworkParallelEnv):
         for agent in self.agents:
             if agent in rewards:
                 rewards[agent] += central_adjustments[agent]
+        
+        # Apply reward accumulation
+        rewards, infos = self._accumulate_rewards(rewards, infos)
                 
         return observations, rewards, terminations, truncations, infos
