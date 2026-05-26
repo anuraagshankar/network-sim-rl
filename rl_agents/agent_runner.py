@@ -1,7 +1,7 @@
 from envs import WirelessNetworkEnv, WirelessNetworkParallelEnv, CentralizedRewardParallelEnv
 
 # Configuration
-ENV_CLASS = CentralizedRewardParallelEnv
+ENV_CLASS = WirelessNetworkParallelEnv
 CONFIG_NAME = "scenario_2_three_agents_two_channels"
 RENDER_MODE = "human"
 TRAIN_EPS = 200
