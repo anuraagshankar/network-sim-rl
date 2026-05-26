@@ -24,6 +24,9 @@ class Node:
         self.packet_queue_high = deque()
         self.packet_queue_low = deque()
         self.backoff_timer = 0
+        # Pending transmission reserved at decision time, fired when backoff_timer hits 0.
+        # (channel, qos) or None if no reservation is active.
+        self.pending_tx = None
         self.stats = {
             0: {'sent': 0, 'latency': 0.0, 'received': 0, 'dropped': 0, 'collisions': 0},
             1: {'sent': 0, 'latency': 0.0, 'received': 0, 'dropped': 0, 'collisions': 0}

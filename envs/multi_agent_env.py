@@ -121,7 +121,11 @@ class WirelessNetworkParallelEnv(ParallelEnv):
         
         self.collision_history = np.zeros(self.n_channels)
         self.current_step = 0
-        
+
+        # Reward accumulated over each node's current decision->resolution window.
+        # Delivered to the agent on its next decision (can_act) slot.
+        self.reward_acc = np.zeros(self.n_nodes, dtype=np.float64)
+
         if self.render_mode is not None:
             self.replay_log = []
             self.replay_log.append({
@@ -166,7 +170,11 @@ class WirelessNetworkParallelEnv(ParallelEnv):
             'backoff': node.backoff_timer,
             'sent_high': node.stats[self.HIGH_PRIO]['sent'],
             'sent_low': node.stats[self.LOW_PRIO]['sent'],
-            'collisions': sum(node.stats[q]['collisions'] for q in [0, 1])
+            'collisions': sum(node.stats[q]['collisions'] for q in [0, 1]),
+            # The node makes a real decision this slot only when it is free
+            # (no active countdown and no pending reservation). Agents should
+            # only select_action / update on slots where this is True.
+            'can_act': node.backoff_timer == 0 and node.pending_tx is None
         }
     
     def _compute_node_latency_throughput(self):
@@ -226,16 +234,25 @@ class WirelessNetworkParallelEnv(ParallelEnv):
         # Step 3: Transmission decisions (all agents act in parallel)
         transmissions = [[] for _ in range(self.n_channels)]
         actions_taken = {}
-        
+
+        # A node makes a real decision this slot only if it is free (no active
+        # countdown and no pending reservation) at the START of the slot. Snapshot
+        # this before the loop mutates timers, so we know which agents' actions
+        # actually matter and which should receive their accumulated reward.
+        was_free = [node.backoff_timer == 0 and node.pending_tx is None
+                    for node in self.nodes]
+
         for i, agent in enumerate(self.agents):
             node = self.nodes[i]
             action = actions[agent]
-            
+
             queue_sel = action['queue_selection']
             channel_sel = action['channel_selection']
             backoff = action['backoff_value']
-            
-            if node.backoff_timer == 0:
+
+            # Make a new reservation only when the node is free. The action on
+            # countdown slots is ignored (the agent should not even be queried).
+            if was_free[i]:
                 # Check if selected queue has packets
                 if queue_sel == self.HIGH_PRIO and len(node.packet_queue_high) > 0:
                     qos = self.HIGH_PRIO
@@ -243,15 +260,25 @@ class WirelessNetworkParallelEnv(ParallelEnv):
                     qos = self.LOW_PRIO
                 else:
                     qos = -1
-                
+
                 if qos != -1:
+                    # Lock channel + queue now; the transmission fires when the
+                    # countdown reaches 0. backoff == N means transmit N slots
+                    # from now; backoff == 0 fires this same slot.
+                    node.pending_tx = (channel_sel, qos)
                     node.backoff_timer = backoff
-                    if backoff == 0:
-                        transmissions[channel_sel].append(i)
-                        actions_taken[i] = (channel_sel, qos)
-            
+
+            # Count down. The decision slot itself counts as the first slot, so a
+            # reservation with backoff == 0 fires immediately below.
             if node.backoff_timer > 0:
                 node.backoff_timer -= 1
+
+            # Fire the reserved transmission once the countdown completes.
+            if node.backoff_timer == 0 and node.pending_tx is not None:
+                channel, qos = node.pending_tx
+                transmissions[channel].append(i)
+                actions_taken[i] = (channel, qos)
+                node.pending_tx = None
         
         # Step 4: Resolve outcomes
         successful_tx = {}
@@ -303,10 +330,35 @@ class WirelessNetworkParallelEnv(ParallelEnv):
         # Queue penalty for all agents
         for i, agent in enumerate(self.agents):
             node = self.nodes[i]
-            queue_occupancy = (len(node.packet_queue_high) + 
+            queue_occupancy = (len(node.packet_queue_high) +
                               len(node.packet_queue_low)) / (2 * self.queue_limit)
             rewards[agent] -= queue_occupancy * QUEUE_PENALTY_COEFF
-        
+
+        # Per-slot reward shaping hook (subclasses may add cooperative terms).
+        # Computed on the raw per-slot rewards, BEFORE async accumulation, so any
+        # shaping is delivered through the same windowed credit-assignment scheme.
+        adjustments = self._per_slot_reward_adjustment(transmissions, successful_tx)
+        for agent in self.agents:
+            rewards[agent] += adjustments[agent]
+
+        # Asynchronous reward delivery.
+        # Each per-slot reward computed above is the "raw" reward for this slot.
+        # We accumulate raw rewards over a node's decision->resolution window and
+        # deliver the sum on the node's NEXT decision slot (was_free). The delivered
+        # reward therefore credits the PREVIOUS decision's action with the full
+        # outcome of the window it produced. On non-decision (countdown) slots the
+        # agent receives 0 and should not update.
+        delivered = {agent: 0.0 for agent in self.agents}
+        for i, agent in enumerate(self.agents):
+            raw = rewards[agent]
+            if was_free[i]:
+                # This slot starts a new window: hand back the previous window's sum.
+                delivered[agent] = self.reward_acc[i]
+                self.reward_acc[i] = 0.0
+            # This slot's raw reward belongs to the (now current) window.
+            self.reward_acc[i] += raw
+        rewards = delivered
+
         # Log step data for replay
         if self.render_mode is not None:
             step_data = {
@@ -347,7 +399,17 @@ class WirelessNetworkParallelEnv(ParallelEnv):
                 infos[agent]['node_latency_throughput'] = metrics
         
         return observations, rewards, terminations, truncations, infos
-    
+
+    def _per_slot_reward_adjustment(self, transmissions, successful_tx):
+        """Per-slot cooperative reward shaping. Base env applies none.
+
+        Subclasses return a dict {agent: adjustment} to be added to each agent's
+        raw per-slot reward before async accumulation. Args describe this slot:
+          - transmissions: list per channel of node ids that transmitted
+          - successful_tx: {node_id: qos} for nodes whose tx succeeded
+        """
+        return {agent: 0.0 for agent in self.agents}
+
     def _save_replay(self):
         """Save replay log to file."""
         os.makedirs('replays', exist_ok=True)
@@ -382,67 +444,70 @@ class CentralizedRewardParallelEnv(WirelessNetworkParallelEnv):
     
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        # Track last transmission time for each node
-        self.node_last_tx_step = None 
+        # Step at which each node last transmitted (for idle-duration penalty).
+        self.node_last_tx_step = None
 
     def reset(self, seed=None, options=None):
         observations, infos = super().reset(seed=seed, options=options)
-        
-        # Initialize last transmission steps to 0
         self.node_last_tx_step = np.zeros(self.n_nodes, dtype=int)
-        
         return observations, infos
 
-    def step(self, actions):
-        # Capture stats before step to detect transmissions
-        pre_stats = []
-        for node in self.nodes:
-            sent = node.stats[self.HIGH_PRIO]['sent'] + node.stats[self.LOW_PRIO]['sent']
-            collisions = node.stats[self.HIGH_PRIO]['collisions'] + node.stats[self.LOW_PRIO]['collisions']
-            pre_stats.append({'sent': sent, 'collisions': collisions})
-            
-        # Execute base environment step
-        observations, rewards, terminations, truncations, infos = super().step(actions)
-        
-        # Determine which nodes transmitted (successful or collision)
-        did_transmit = [False] * self.n_nodes
-        cur_stats = []
-        for i, node in enumerate(self.nodes):
-            sent = node.stats[self.HIGH_PRIO]['sent'] + node.stats[self.LOW_PRIO]['sent']
-            collisions = node.stats[self.HIGH_PRIO]['collisions'] + node.stats[self.LOW_PRIO]['collisions']
-            cur_stats.append({'sent': sent, 'collisions': collisions})
-            
-            # Check if sent count or collision count increased
-            if sent > pre_stats[i]['sent'] or collisions > pre_stats[i]['collisions']:
-                did_transmit[i] = True
-                self.node_last_tx_step[i] = self.current_step
-        
-        # Calculate centralized adjustments
-        central_adjustments = {agent: 0.0 for agent in self.agents}
-        
+    def _per_slot_reward_adjustment(self, transmissions, successful_tx):
+        """Cooperative shaping, computed per physical slot and routed through the
+        base env's async accumulator (so it is delivered with the windowed reward).
+
+        For each node i, every OTHER node j receives:
+          + CENTRAL_TX_REWARD     if j transmitted successfully this slot
+          - CENTRAL_COLLISION_PENALTY if j collided this slot
+        If node i was idle this slot, every other node is additionally penalized by
+        an amount that grows with how long i has been idle. The idle penalty is what
+        prevents the degenerate 'everyone stays silent to farm others' bonuses'
+        equilibrium; the collision penalty discourages piling onto the same slot.
+        """
+        # Classify each node's outcome this slot from the resolved transmissions.
+        transmitted = set()
+        for tx in transmissions:
+            transmitted.update(tx)
+        succeeded = set(successful_tx.keys())
+        collided = transmitted - succeeded
+
+        # A node mid-countdown is committed to transmit soon, so it is NOT idle.
+        # Counting it as idle would penalize exactly the backoff/wait behavior we
+        # want agents to use to interleave on the channel.
+        committed = {i for i in range(self.n_nodes) if self.nodes[i].pending_tx is not None}
+
+        # Update idle bookkeeping: a node that transmitted resets its idle clock.
         for i in range(self.n_nodes):
-            if did_transmit[i]:
-                # Node i transmitted: Reward others
+            if i in transmitted:
+                self.node_last_tx_step[i] = self.current_step
+
+        adjustments = {agent: 0.0 for agent in self.agents}
+        for i in range(self.n_nodes):
+            if i in transmitted:
                 for j, agent in enumerate(self.agents):
-                    if i == j: 
+                    if i == j:
                         continue
-                    if cur_stats[j]['sent'] > pre_stats[j]['sent']:
-                        central_adjustments[agent] += CENTRAL_TX_REWARD
-                    if cur_stats[j]['collisions'] > pre_stats[j]['collisions']:
-                        central_adjustments[agent] -= CENTRAL_COLLISION_PENALTY
+                    if j in succeeded:
+                        adjustments[agent] += CENTRAL_TX_REWARD
+                    if j in collided:
+                        adjustments[agent] -= CENTRAL_COLLISION_PENALTY
+            elif i in committed:
+                # Committed to a pending transmission: not idle, no penalty.
+                continue
             else:
-                # Node i was idle: Penalize others based on idle duration
-                # idle_duration is calculated from current step
                 idle_duration = self.current_step - self.node_last_tx_step[i]
                 penalty = CENTRAL_IDLE_PENALTY_BASE + (idle_duration * CENTRAL_IDLE_PENALTY_FACTOR)
-                
                 for j, agent in enumerate(self.agents):
                     if i != j:
-                        central_adjustments[agent] -= penalty
-                        
-        # Apply adjustments to rewards
-        for agent in self.agents:
-            if agent in rewards:
-                rewards[agent] += central_adjustments[agent]
-                
-        return observations, rewards, terminations, truncations, infos
+                        adjustments[agent] -= penalty
+
+        # A node mid-countdown is correctly waiting its turn; do not pollute its
+        # reward window with cooperative penalties/rewards triggered by others
+        # during the wait. Those terms (accumulated over the whole backoff window)
+        # were cancelling the node's own +SUCCESS_REWARD on resolution, flattening
+        # the backoff Q-values. A committed node receives shaping only on the slot
+        # its own transmission resolves (it is no longer committed by then).
+        for i in committed:
+            adjustments[self.agents[i]] = 0.0
+
+        return adjustments

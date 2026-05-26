@@ -2,6 +2,17 @@ import json
 import pygame
 import sys
 
+
+def channel_collision_this_step(step_data, channel_id):
+    """True only when a collision occurs on this channel in this timestep."""
+    if str(channel_id) not in step_data['transmissions']:
+        return False
+    tx_nodes = step_data['transmissions'][str(channel_id)]
+    if len(tx_nodes) > 1:
+        return True
+    return len(tx_nodes) == 1 and step_data['external_busy'][channel_id]
+
+
 class ReplayRenderer:
     def __init__(self, replay_file):
         with open(replay_file, 'r') as f:
@@ -118,7 +129,7 @@ class ReplayRenderer:
             channel_x = 100 + channel_id * 100
             
             is_interference = step_data['external_busy'][channel_id]
-            is_collision = channel_id in step_data['collisions']
+            is_collision = channel_collision_this_step(step_data, channel_id)
             is_success = False
             
             if str(channel_id) in step_data['transmissions']:
@@ -296,7 +307,7 @@ class NonstationaryReplayRenderer:
             channel_x = 100 + channel_id * 100
             
             is_interference = step_data['external_busy'][channel_id]
-            is_collision = channel_id in step_data['collisions']
+            is_collision = channel_collision_this_step(step_data, channel_id)
             is_success = False
             
             if str(channel_id) in step_data['transmissions']:

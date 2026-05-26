@@ -25,9 +25,11 @@ class NodeAgent:
         self.n_agents = n_agents
         self.queue_agent = ContextualAgent(4, 2, epsilon)
         self.channel_agent = ContextualAgent(2**n_channels, n_channels, epsilon)
-        # self.backoff_agent = ContextualAgent(2 * n_agents, min(n_agents, max_backoff + 1), epsilon)
-    
-        self.backoff_agent = ContextualAgent(2, 2, epsilon)
+        # Backoff: context is the global slot phase (current_step % n_agents),
+        # arms are every selectable backoff value 0..max_backoff. This lets each
+        # agent learn a distinct backoff per phase, which can express the
+        # round-robin solution (each agent firing every n_agents slots, offset).
+        self.backoff_agent = ContextualAgent(n_agents, max_backoff + 1, epsilon)
     
     def set_epsilon(self, epsilon):
         self.queue_agent.epsilon = epsilon
@@ -65,10 +67,9 @@ class NodeAgent:
         return state
     
     def _get_backoff_state(self, obs):
-        backoff_binary = 0 if obs[2] == 0 else 1
-        timestep_state = int(obs[3]) % self.n_agents
-        # return backoff_binary * self.n_agents + timestep_state
-        return 1 if self.node_id == timestep_state else 0
+        # obs[3] is current_step. Decisions only happen when backoff_timer == 0
+        # (can_act), so obs[2] carries no information here and is omitted.
+        return int(obs[3]) % self.n_agents
 
 
 # Training
@@ -91,21 +92,35 @@ for episode in range(n_episodes):
     
     episode_rewards = {agent: 0 for agent in env.possible_agents}
     observations, infos = env.reset()
-    
+
+    # The env is asynchronous: a node only makes a real decision on slots where
+    # infos[agent]['can_act'] is True, and the reward returned on such a slot is the
+    # accumulated outcome of that node's PREVIOUS decision. We therefore hold each
+    # agent's last (state, action) and pair it with the reward delivered on its next
+    # can_act slot. On countdown slots the action is ignored and no update happens.
+    pending = {agent: None for agent in env.possible_agents}   # held (state, action)
+    last_action = {agent: None for agent in env.possible_agents}  # action to repeat while idle
+
     while True:
         actions = {}
-        states = {}
         for agent_name in env.agents:
-            action, state = agents[agent_name].select_action(observations[agent_name], env.n_channels)
-            actions[agent_name] = action
-            states[agent_name] = state
-        
+            if infos[agent_name]['can_act']:
+                # Credit the previous decision with the reward accumulated over its window.
+                if pending[agent_name] is not None:
+                    prev_state, prev_action = pending[agent_name]
+                    agents[agent_name].update(prev_state, prev_action, rewards[agent_name])
+                    episode_rewards[agent_name] += rewards[agent_name]
+
+                action, state = agents[agent_name].select_action(observations[agent_name], env.n_channels)
+                actions[agent_name] = action
+                last_action[agent_name] = action
+                pending[agent_name] = (state, action)
+            else:
+                # Countdown slot: action is ignored by the env, but one must be supplied.
+                actions[agent_name] = last_action[agent_name]
+
         observations, rewards, terminations, truncations, infos = env.step(actions)
-        
-        for agent_name in env.agents:
-            episode_rewards[agent_name] += rewards[agent_name]
-            agents[agent_name].update(states[agent_name], actions[agent_name], rewards[agent_name])
-        
+
         if all(truncations.values()) or all(terminations.values()):
             print(f"Episode {episode} rewards: {episode_rewards}")
             break
@@ -123,14 +138,21 @@ for agent in agents.values():
 
 observations, infos = env.reset()
 
+last_action = {agent: None for agent in env.possible_agents}
+
 while True:
     actions = {}
     for agent_name in env.agents:
-        action, _ = agents[agent_name].select_action(observations[agent_name], env.n_channels)
-        actions[agent_name] = action
-    
+        if infos[agent_name]['can_act']:
+            action, _ = agents[agent_name].select_action(observations[agent_name], env.n_channels)
+            actions[agent_name] = action
+            last_action[agent_name] = action
+        else:
+            # Countdown slot: action is ignored by the env.
+            actions[agent_name] = last_action[agent_name]
+
     observations, rewards, terminations, truncations, infos = env.step(actions)
-    
+
     if all(truncations.values()) or all(terminations.values()):
         break
 
